@@ -1,0 +1,24 @@
+<launch>
+  <arg name="use_rqt" default="false"/>  
+  <arg name="model" default="$(find ar2_urdf)/urdf/ar2.urdf"/>
+
+  <!-- load robot description  -->
+  <param name="robot_description" command="$(find xacro)/xacro.py $(arg model)" />
+
+  <!-- driver node -->
+  <node pkg="ar2_driver" name="ar2_driver" type="driver.py" output="screen" />
+  
+  <!-- robot_state_publisher -->
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher"/>
+
+  <!-- Load joint trajecotory controller -->
+  <rosparam file="$(find ar2_driver)/config/ar2_controllers.yaml" />
+  <node name="controller_spawner" pkg="controller_manager" type="spawner"
+	respawn="false" args="joint_state_controller arm_controller"/>
+
+  <!-- Launch rqt joint_trajectory_controller -->
+  <node if="$(arg use_rqt)"
+	name="rqt" pkg="rqt_gui" type="rqt_gui"
+	args="-s rqt_joint_trajectory_controller.joint_trajectory_controller.JointTrajectoryController"/>
+
+</launch>

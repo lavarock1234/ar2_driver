@@ -1,0 +1,49 @@
+joint_state_controller:
+  type: joint_state_controller/JointStateController
+  publish_rate: 50
+
+arm_controller:
+  type: position_controllers/JointTrajectoryController
+  joints:
+    - joint_1
+    - joint_2
+    - joint_3
+    - joint_4
+    - joint_5
+    - joint_6
+
+joint_1_position_controller:
+  type: position_controllers/JointPositionController
+  publish_rate: 50
+  base_frame_id: base_link
+  joint : joint_1
+
+joint_2_position_controller:
+  type: position_controllers/JointPositionController
+  publish_rate: 50
+  base_frame_id: base_link
+  joint : joint_2
+
+joint_3_position_controller:
+  type: position_controllers/JointPositionController
+  publish_rate: 50
+  base_frame_id: base_link
+  joint : joint_3
+
+joint_4_position_controller:
+  type: position_controllers/JointPositionController
+  publish_rate: 50
+  base_frame_id: base_link
+  joint : joint_4
+
+joint_5_position_controller:
+  type: position_controllers/JointPositionController
+  publish_rate: 50
+  base_frame_id: base_link
+  joint : joint_5
+
+joint_6_position_controller:
+  type: position_controllers/JointPositionController
+  publish_rate: 50
+  base_frame_id: base_link
+  joint : joint_6

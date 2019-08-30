@@ -1,0 +1,14 @@
+<launch>
+  <arg name="use_rviz" default="true"/>
+
+  <!-- Launch rviz -->
+  <node if="$(arg use_rviz)"
+	name="rviz" pkg="rviz" type="rviz"
+	args="-d $(find jog_launch)/launch/jog.rviz"/>
+  
+  <rosparam command="load" file="$(find ar2_driver)/config/ar2_jog.yaml"/>
+  <node name="jog_joint_node" pkg="jog_controller" type="jog_joint_node"/>
+  <node name="jog_frame_node" pkg="jog_controller" type="jog_frame_node">
+    <param name="use_action" value="true"/>
+  </node>
+</launch>
