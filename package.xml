@@ -20,6 +20,7 @@
   <depend>message_generation</depend>
   <depend>message_runtime</depend>
 
+  <exec_depend>ar2</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>joint_state_controller</exec_depend>
   <exec_depend>joint_trajectory_controller</exec_depend>
