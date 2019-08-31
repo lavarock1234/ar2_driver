@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
 
+'''
+ROS compatible driver for AR2 Robot https://github.com/Chris-Annin/AR2
+
+Much of code is modified from AR2.py in the above repository
+
+Note - we use python3 here to maintain protocol compatibility with ARbot.cal generated
+by the AR2 windows application.
+
+Author: Xuchu (Dennis) Ding, xuchu.ding@gmail.com
+'''
+
 import serial
 import pickle
 import time
+import sys
 
 import rospy
 import roslib
@@ -13,10 +25,7 @@ from trajectory_msgs.msg import JointTrajectory
 from ar2_driver.msg import ArmJointStep
 from urdf_parser_py.urdf import URDF
 
-# joint names, will check in run time if joint names are correct
-joint_name = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
-
-# default Control settings from AR2.py
+# default control settings from AR2.py
 Speed = "25"
 ACCdur = "15"
 ACCspd = "10"
@@ -35,7 +44,12 @@ J6motdir = "0"
 calibration_filename = "/home/xding/Dropbox/BlueHill/AR2 2.0 software exe files/ARbot.cal"
 
 # load data from calibration file
-Cal = pickle.load(open(calibration_filename, "rb"))
+try:
+    Cal = pickle.load(open(calibration_filename, "rb"))
+except:
+    print("Unable to open calibration file: " + calibration_filename)
+    sys.exit()
+
 J1StepCur   = Cal[0]
 J1AngCur    = Cal[1]
 J2StepCur   = Cal[2]
@@ -137,117 +151,115 @@ J4DegPerStep = float((J4PosAngLim - J4NegAngLim)/float(J4StepLim))
 J5DegPerStep = float((J5PosAngLim - J5NegAngLim)/float(J5StepLim))
 J6DegPerStep = float((J6PosAngLim - J6NegAngLim)/float(J6StepLim))
 
+# joint names, will check in run time if joint names are correct
+joint_name = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
+
+
+class AR2Joint:
+    def __init__(self, PosAngLim, NegAngLim):
+        self.PosAngLim = PosAngLim
+        self.NegAngLim = NegAngLim
+
 
 class JointDriver:
     def __init__(self):
-        self.current_position = [0, 0, 0, 0, 0, 0]
+        self.StepCur = [J1StepCur, J2StepCur, J3StepCur, J4StepCur, J5StepCur, J6StepCur]
+        self.AngCur = [J1AngCur, J2AngCur, J3AngCur, J4AngCur, J5AngCur, J6AngCur]
+        self.motdir = [J1motdir, J2motdir, J3motdir, J4motdir, J5motdir, J6motdir]
+        self.drivecmd = ["A", "B", "C", "D", "E", "F"]
+        self.neg_motdir = []
+        for i in range(len(self.motdir)):
+            if self.motdir[i] == "0":
+                self.neg_motdir.append("1")
+            else:
+                self.neg_motdir.append("0")
+        print("motdir: " + str(self.motdir) + ", neg_motdir: " + str(self.neg_motdir))
+
+        self.DegPerStep = [J1DegPerStep, J2DegPerStep, J3DegPerStep, J4DegPerStep, J5DegPerStep, J6DegPerStep]
+
         self.current_velocity = [0, 0, 0, 0, 0, 0]
         self.current_effort = [0, 0, 0, 0, 0, 0]
 
+        # set up joints
+        self.joints = [
+            AR2Joint(J1PosAngLim, J1NegAngLim),
+            AR2Joint(J2PosAngLim, J2NegAngLim),
+            AR2Joint(J3PosAngLim, J3NegAngLim),
+            AR2Joint(J4PosAngLim, J4NegAngLim),
+            AR2Joint(J5PosAngLim, J5NegAngLim),
+            AR2Joint(J6PosAngLim, J6NegAngLim),
+        ]
+
         # comm port
-        port = "/dev/ttyACM0"
+        port = "/dev/ttyArduino"
         baud = 115200
         self.ser = serial.Serial(port, baud)
 
-    def J1jogPos(self, jog_deg):
-        global J1StepCur
-        global J1AngCur
+    def jog(self, index, jog_deg):
+        Degs = jog_deg
 
-        J1Degs = jog_deg
-        J1jogSteps = int(J1Degs/J1DegPerStep)
+        StepCur = self.StepCur[index]
+        AngCur = self.AngCur[index]
 
-        #calc pos dir output
-        if J1motdir == "0":
-            J1drivedir = "1"
+        motdir = self.motdir[index]
+        neg_motdir = self.neg_motdir[index]
+
+        DegPerStep = self.DegPerStep[index]
+        jogSteps = int(Degs/DegPerStep)
+
+        PosAngLim = self.joints[index].PosAngLim
+        NegAngLim = self.joints[index].NegAngLim
+
+        n = self.drivecmd[index]
+
+        if Degs > 0:
+            dir = neg_motdir
         else:
-            J1drivedir = "0"
+            dir = motdir
 
-        if J1Degs <= (J1PosAngLim - J1AngCur):
-            command = "MJA"+J1drivedir+str(J1jogSteps)+"S"+Speed+"G"+ACCdur+"H"+ACCspd+"I"+DECdur+"K"+DECspd+"\n"
+        rospy.loginfo("dir: " + dir + " jog_deg: " + str(jog_deg))
+
+        cmd_valid = False
+        if 0 < Degs <= (PosAngLim - AngCur):
+            command = "MJ"+n+dir+str(jogSteps)+"S"+Speed+"G"+ACCdur+"H"+ACCspd+"I"+DECdur+"K"+DECspd+"\n"
+            cmd_valid = True
+        if 0 >= Degs >= NegAngLim - AngCur:
+            command = "MJ"+n+dir+str(-jogSteps)+"S"+Speed+"G"+ACCdur+"H"+ACCspd+"I"+DECdur+"K"+DECspd+"\n"
+            cmd_valid = True
+        else:
+            rospy.logerr("J" + str(index+1) + " AXIS LIMIT")
+
+        if cmd_valid:
+            rospy.loginfo("Sending command to arduino: " + command)
+            # write data
             self.ser.write(command.encode())
             self.ser.flushInput()
             time.sleep(.2)
             self.ser.read()
-            J1StepCur = J1StepCur + int(J1jogSteps)
-            J1AngCur = round(J1NegAngLim + (J1StepCur * J1DegPerStep),2)
+
+            # update current state
+            self.StepCur[index] = StepCur + int(jogSteps)
+            self.AngCur[index] = round(NegAngLim + (StepCur * DegPerStep),2)
 
             # save data to file
-            # pickle.dump(Cal, open(calibration_filename, "wb"), protocol=2)
-        else:
-            rospy.logwarn("J1 AXIS LIMIT")
-
-    def J6jogPos(self, jog_deg):
-        global J6StepCur
-        global J6AngCur
-
-        J6Degs = jog_deg
-        J6jogSteps = int(J6Degs/J6DegPerStep)
-
-        #calc pos dir output
-        if J6motdir == "0":
-            J6drivedir = "1"
-        else:
-            J6drivedir = "0"
-
-        if (J6Degs <= (J6PosAngLim - J6AngCur)):
-            command = "MJF"+J6drivedir+str(J6jogSteps)+"S"+Speed+"G"+ACCdur+"H"+ACCspd+"I"+DECdur+"K"+DECspd+"\n"
-            self.ser.write(command.encode())
-            self.ser.flushInput()
-            time.sleep(.2)
-            self.ser.read()
-            J6StepCur = J6StepCur + int(J6jogSteps)
-            J6AngCur = round(J6NegAngLim + (J6StepCur * J6DegPerStep),2)
-
-            # save data to file
-            # pickle.dump(Cal, open(calibration_filename, "wb"), protocol=2)
-        else:
-            rospy.logwarn("J6 AXIS LIMIT")
-
-    def J6jogNeg(self, jog_deg):
-        global J6StepCur
-        global J6AngCur
-
-        J6Degs = jog_deg
-        J6jogSteps = int(J6Degs/J6DegPerStep)
-
-        if (J6Degs <= -(J6NegAngLim - J6AngCur)):
-            command = "MJF"+J6motdir+str(J6jogSteps)+"S"+Speed+"G"+ACCdur+"H"+ACCspd+"I"+DECdur+"K"+DECspd+"\n"
-            self.ser.write(command.encode())
-            self.ser.flushInput()
-            time.sleep(.2)
-            self.ser.read()
-            J6StepCur = J6StepCur - int(J6jogSteps)
-            J6AngCur = round(J6NegAngLim + (J6StepCur * J6DegPerStep),2)
-
-            # save data to file
-            # pickle.dump(Cal, open(calibration_filename, "wb"), protocol=2)
-        else:
-            rospy.logwarn("J6 AXIS LIMIT")
+            # pickle.dump(Cal, open(calibration_filename, "wb"))
 
     def joint_cmd_cb(self, data):
-        rospy.loginfo(rospy.get_caller_id() + ": Got joint cmd %s", data.points)
+        rospy.logdebug(rospy.get_caller_id() + ": Got joint cmd %s", data.points)
 
         # compute desired steps and command each joint
-        J1deg = math.degrees(data.points[0].positions[0] - self.current_position[0])
-        if J1deg > 0:
-            rospy.loginfo("Jogging J1 positive " + str(J1deg) + " deg")
-            self.J1jogPos(J1deg)
-
-        J6deg = math.degrees(data.points[0].positions[5] - self.current_position[5])
-        if J6deg > 0:
-            rospy.loginfo("Jogging J6 positive " + str(J6deg) + " deg")
-            self.J6jogPos(J6deg)
-        else:
-            rospy.loginfo("Jogging J6 negative " + str(-J6deg) + " deg")
-            self.J6jogNeg(-J6deg)
-
-        # set current position as command, this is open loop with no position feedback!
-        self.current_position = data.points[0].positions
+        for index in range(len(self.joints)):
+            jog_deg = math.degrees(data.points[0].positions[index]) - self.AngCur[index]
+            if abs(jog_deg) < 0.5:
+                jog_deg = 0
+            if jog_deg != 0:
+                rospy.loginfo("Jogging J" + str(index+1) + " " + str(jog_deg) + " deg")
+                self.jog(index, jog_deg)
 
 
 if __name__ == '__main__':
     try:
-        rospy.init_node('ar2_driver', anonymous=False)
+        rospy.init_node('ar2_driver')
 
         robot = URDF.from_parameter_server()
         joint_name_check = []
@@ -266,7 +278,7 @@ if __name__ == '__main__':
             state_out = JointState()
             state_out.header.stamp = rospy.Time.now()
             state_out.name = joint_name
-            state_out.position = driver.current_position
+            state_out.position = [math.radians(val) for val in driver.AngCur]
             state_out.velocity = driver.current_velocity
             state_out.effort = driver.current_effort
             state_pub.publish(state_out)
