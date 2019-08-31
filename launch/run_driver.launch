@@ -1,6 +1,6 @@
 <launch>
   <arg name="use_rqt" default="false"/>  
-  <arg name="model" default="$(find ar2_urdf)/urdf/ar2.urdf"/>
+  <arg name="model" default="$(find ar2)/urdf/ar2.urdf"/>
 
   <!-- load robot description  -->
   <param name="robot_description" command="$(find xacro)/xacro.py $(arg model)" />

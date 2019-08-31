@@ -1,5 +1,9 @@
 <launch>
   <arg name="use_rviz" default="true"/>
+  <arg name="model" default="$(find ar2)/urdf/ar2.urdf"/>
+
+  <!-- load robot description  -->
+  <param name="robot_description" command="$(find xacro)/xacro.py $(arg model)" />
 
   <!-- Launch rviz -->
   <node if="$(arg use_rviz)"
