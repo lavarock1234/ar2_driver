@@ -15,6 +15,7 @@ import serial
 import pickle
 import time
 import sys
+import numpy as np
 
 import rospy
 import roslib
@@ -26,7 +27,7 @@ from ar2_driver.msg import ArmJointStep
 from urdf_parser_py.urdf import URDF
 
 # default control settings from AR2.py
-Speed = "25"
+Speed = "15"
 ACCdur = "15"
 ACCspd = "10"
 DECdur = "20"
@@ -34,11 +35,11 @@ DECspd = "5"
 
 # default motor directions from calibration page
 J1motdir = "0"
-J2motdir = "0"
+J2motdir = "1"
 J3motdir = "0"
 J4motdir = "0"
-J5motdir = "0"
-J6motdir = "0"
+J5motdir = "1"
+J6motdir = "1"
 
 # calibration file location
 calibration_filename = "/home/xding/Dropbox/BlueHill/AR2 2.0 software exe files/ARbot.cal"
@@ -154,6 +155,14 @@ J6DegPerStep = float((J6PosAngLim - J6NegAngLim)/float(J6StepLim))
 # joint names, will check in run time if joint names are correct
 joint_name = ['joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5', 'joint_6']
 
+# Offset between angle and angle to be used in ROS (AngOff + AngROS = AngCur)
+J1AngOff = -0.01
+J2AngOff = -90.01
+J3AngOff = 90.0
+J4AngOff = -0.01
+J5AngOff = -0.01
+J6AngOff = 0.03
+
 
 class AR2Joint:
     def __init__(self, PosAngLim, NegAngLim):
@@ -163,9 +172,10 @@ class AR2Joint:
 
 class JointDriver:
     def __init__(self):
-        self.StepCur = [J1StepCur, J2StepCur, J3StepCur, J4StepCur, J5StepCur, J6StepCur]
-        self.AngCur = [J1AngCur, J2AngCur, J3AngCur, J4AngCur, J5AngCur, J6AngCur]
-        self.motdir = [J1motdir, J2motdir, J3motdir, J4motdir, J5motdir, J6motdir]
+        self.StepCur = np.array([J1StepCur, J2StepCur, J3StepCur, J4StepCur, J5StepCur, J6StepCur])
+        self.AngCur = np.array([J1AngCur, J2AngCur, J3AngCur, J4AngCur, J5AngCur, J6AngCur])
+        self.AngOff = np.array([J1AngOff, J2AngOff, J3AngOff, J4AngOff, J5AngOff, J6AngOff])
+        self.motdir = np.array([J1motdir, J2motdir, J3motdir, J4motdir, J5motdir, J6motdir])
         self.drivecmd = ["A", "B", "C", "D", "E", "F"]
         self.neg_motdir = []
         for i in range(len(self.motdir)):
@@ -173,9 +183,8 @@ class JointDriver:
                 self.neg_motdir.append("1")
             else:
                 self.neg_motdir.append("0")
-        print("motdir: " + str(self.motdir) + ", neg_motdir: " + str(self.neg_motdir))
 
-        self.DegPerStep = [J1DegPerStep, J2DegPerStep, J3DegPerStep, J4DegPerStep, J5DegPerStep, J6DegPerStep]
+        self.DegPerStep = np.array([J1DegPerStep, J2DegPerStep, J3DegPerStep, J4DegPerStep, J5DegPerStep, J6DegPerStep])
 
         self.current_velocity = [0, 0, 0, 0, 0, 0]
         self.current_effort = [0, 0, 0, 0, 0, 0]
@@ -217,8 +226,6 @@ class JointDriver:
         else:
             dir = motdir
 
-        rospy.loginfo("dir: " + dir + " jog_deg: " + str(jog_deg))
-
         cmd_valid = False
         if 0 < Degs <= (PosAngLim - AngCur):
             command = "MJ"+n+dir+str(jogSteps)+"S"+Speed+"G"+ACCdur+"H"+ACCspd+"I"+DECdur+"K"+DECspd+"\n"
@@ -231,6 +238,7 @@ class JointDriver:
 
         if cmd_valid:
             rospy.loginfo("Sending command to arduino: " + command)
+            rospy.loginfo("Jogging J" + str(index+1) + " by " + str(Degs) + " deg / " + str(jogSteps) + " steps")
             # write data
             self.ser.write(command.encode())
             self.ser.flushInput()
@@ -242,20 +250,27 @@ class JointDriver:
             self.AngCur[index] = round(NegAngLim + (StepCur * DegPerStep),2)
 
             # save data to file
-            # pickle.dump(Cal, open(calibration_filename, "wb"))
+            pickle.dump(Cal, open(calibration_filename, "wb"))
+            rospy.loginfo("Wrote to file: " + calibration_filename)
 
     def joint_cmd_cb(self, data):
         rospy.logdebug(rospy.get_caller_id() + ": Got joint cmd %s", data.points)
 
         # compute desired steps and command each joint
+        converted_angles = self.from_ros_angles(np.degrees(np.asarray(data.points[0].positions)))
         for index in range(len(self.joints)):
-            jog_deg = math.degrees(data.points[0].positions[index]) - self.AngCur[index]
+            jog_deg = converted_angles[index] - self.AngCur[index]
             if abs(jog_deg) < 0.5:
                 jog_deg = 0
             if jog_deg != 0:
                 rospy.loginfo("Jogging J" + str(index+1) + " " + str(jog_deg) + " deg")
                 self.jog(index, jog_deg)
 
+    def to_ros_angles(self):
+        return self.AngCur - self.AngOff
+
+    def from_ros_angles(self, ang_deg):
+        return self.AngOff + ang_deg
 
 if __name__ == '__main__':
     try:
@@ -278,11 +293,12 @@ if __name__ == '__main__':
             state_out = JointState()
             state_out.header.stamp = rospy.Time.now()
             state_out.name = joint_name
-            state_out.position = [math.radians(val) for val in driver.AngCur]
+            state_out.position = np.radians(driver.to_ros_angles()).tolist()
             state_out.velocity = driver.current_velocity
             state_out.effort = driver.current_effort
             state_pub.publish(state_out)
-            # pub.publish(hello_str)
+
+            rospy.loginfo_throttle(60, "Current angles: " + str(driver.AngCur))
             rate.sleep()
     except rospy.ROSInterruptException:
         pass
